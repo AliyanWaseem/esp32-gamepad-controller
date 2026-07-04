@@ -4,7 +4,7 @@ A Flutter mobile app that turns your phone into a wireless gamepad. It renders
 a custom, PSP/PPSSPP-inspired controller UI and streams input state to an
 ESP32/STM32 board over UDP.
 
-This directory is the **app** half of the [gamepad-esp32-controller](../)
+This directory is the **app** half of the [esp32-gamepad-controller](../)
 project. For the firmware side, see [`../firmware`](../firmware). For the
 full wire protocol spec, see [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md).
 
