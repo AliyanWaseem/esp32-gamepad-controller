@@ -104,3 +104,5 @@ every button's bit position, lives in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 ## License
 
 MIT — see [`LICENSE`](LICENSE)
+
+![Controller UI](docs/images/connected.jpeg)

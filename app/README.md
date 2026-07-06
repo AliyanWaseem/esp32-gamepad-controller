@@ -94,3 +94,7 @@ in [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md).
 ## License
 
 MIT (or match the root repo license)
+
+
+![Controller UI](docs/images/connected.jpeg)
+![Controller UI](docs/images/not-connected.jpeg)
