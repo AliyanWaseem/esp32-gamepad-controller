@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+// import 'package:flutter/services.dart';
 import '../models/btn_constants.dart';
 import '../widgets/dpad.dart';
 import '../widgets/action_button.dart';
@@ -9,6 +9,9 @@ import '../widgets/pill_button.dart';
 import '../widgets/shoulder_button.dart';
 import '../widgets/joystick.dart';
 import '../widgets/animated_background.dart';
+import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
+
 
 class ControllerScreen extends StatefulWidget {
   const ControllerScreen({super.key});
@@ -25,29 +28,135 @@ class _ControllerScreenState extends State<ControllerScreen> {
   int _joyX = 128;
   int _joyY = 128;
 
+  bool _connected = false;
+  DateTime? _lastAckTime;
+  Timer? _heartbeatTimer;
+  Timer? _watchdogTimer;
+
+  final Connectivity _connectivity = Connectivity();
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+
+  // @override
+  // void initState() {
+  //   super.initState();
+  //   _initSocket();
+  // }
   @override
   void initState() {
     super.initState();
     _initSocket();
-  }
 
-  Future<void> _initSocket() async {
-    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    // Whenever WiFi reconnects, force a fresh socket bind rather than
+    // waiting for a send/receive failure to reveal the old one is dead
+    _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+      if (results.contains(ConnectivityResult.wifi)) {
+        _initSocket();
+      } else {
+        // No WiFi at all — mark disconnected immediately instead of
+        // waiting for the heartbeat timeout
+        _lastAckTime = null;
+        if (_connected) {
+          setState(() => _connected = false);
+        }
+      }
+    });
   }
+//   Future<void> _initSocket() async {
+//   try {
+//     _socket?.close();
+//     _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
 
-  void _sendPacket() {
-    if (_socket == null) return;
-    final mask = _buttonMask;
-    final b0 = mask & 0xFF;
-    final b1 = (mask >> 8) & 0xFF;
-    final b2 = (mask >> 16) & 0xFF;
-    final b3 = (mask >> 24) & 0xFF;
-    final x = _joyX & 0xFF;
-    final y = _joyY & 0xFF;
-    final checksum = (0xAA ^ b0 ^ b1 ^ b2 ^ b3 ^ x ^ y) & 0xFF;
-    final packet = [0xAA, b0, b1, b2, b3, x, y, checksum];
+//     _socket!.listen((event) {
+//         if (event == RawSocketEvent.read) {
+//           final datagram = _socket!.receive();
+//           if (datagram != null) {
+//             _lastAckTime = DateTime.now();
+//           }
+//         }
+//       });
+
+//       // Ping continuously, even with no button/joystick activity, so we
+//       // get a steady heartbeat rather than only pinging on user input
+//       _heartbeatTimer?.cancel();
+//       _heartbeatTimer = Timer.periodic(
+//         const Duration(milliseconds: 300),
+//         (_) => _sendPacket(),
+//       );
+//        // Checks whether an ack has arrived recently; flips the UI state
+//       // the moment acks stop coming in (AP dropped, out of range, etc)
+//       _watchdogTimer?.cancel();
+//       _watchdogTimer = Timer.periodic(const Duration(milliseconds: 400), (_) {
+//         final alive = _lastAckTime != null && 
+//           DateTime.now().difference(_lastAckTime!)
+//             const Duration(milliseconds: 900);
+//         if (alive != _connected) {
+//           setState(() => _connected = alive);
+//         }
+//       });
+//   } catch (e) {
+//     // If binding fails, retry shortly rather than leaving the app silent
+//     Future.delayed(const Duration(seconds: 1), _initSocket);
+//   }
+// }
+
+Future<void> _initSocket() async {
+    try {
+      _socket?.close();
+      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+
+      _socket!.listen((event) {
+        if (event == RawSocketEvent.read) {
+          final datagram = _socket!.receive();
+          if (datagram != null) {
+            _lastAckTime = DateTime.now();
+          }
+        }
+      });
+
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = Timer.periodic(
+        const Duration(milliseconds: 300),
+        (_) => _sendPacket(),
+      );
+
+      _watchdogTimer?.cancel();
+      _watchdogTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) {
+        final timeout = const Duration(milliseconds: 900);
+        final hasRecentAck = _lastAckTime != null;
+        bool alive = false;
+        if (hasRecentAck) {
+          final elapsed = DateTime.now().difference(_lastAckTime!);
+          alive = elapsed < timeout;
+        }
+        if (alive != _connected) {
+          setState(() => _connected = alive);
+        }
+      });
+    } catch (e) {
+      Future.delayed(const Duration(seconds: 1), _initSocket);
+    }
+}
+
+void _sendPacket() {
+  if (_socket == null) return;
+  final mask = _buttonMask;
+  final b0 = mask & 0xFF;
+  final b1 = (mask >> 8) & 0xFF;
+  final b2 = (mask >> 16) & 0xFF;
+  final b3 = (mask >> 24) & 0xFF;
+  final x = _joyX & 0xFF; 
+  final y = _joyY & 0xFF;
+  final checksum = (0xAA ^ b0 ^ b1 ^ b2 ^ b3 ^ x ^ y) & 0xFF;
+  final packet = [0xAA, b0, b1, b2, b3, x, y, checksum];
+
+  try {
     _socket!.send(packet, InternetAddress(espIp), espPort);
+  } catch (e) {
+    // Socket went stale (common after Android pauses the WiFi connection) —
+    // recreate it so the next input doesn't silently vanish
+    _initSocket();
   }
+}
 
   void _setButton(int bit, bool pressed) {
     setState(() {
@@ -75,28 +184,28 @@ class _ControllerScreenState extends State<ControllerScreen> {
     _sendPacket();
   }
 
+  // @override
+  // void dispose() {
+  //   _socket?.close();
+  //   super.dispose();
+  // }
+
+  //  @override
+  // void dispose() {
+  //   _heartbeatTimer?.cancel();
+  //   _watchdogTimer?.cancel();
+  //   _socket?.close();
+  //   super.dispose();
+  // }
+
   @override
   void dispose() {
+    _connectivitySub?.cancel();
+    _heartbeatTimer?.cancel();
+    _watchdogTimer?.cancel();
     _socket?.close();
     super.dispose();
   }
-
-  // @override
-  // Widget build(BuildContext context) {
-  //   return Scaffold(
-  //     backgroundColor: Colors.black,
-  //     body: OrientationBuilder(
-  //       builder: (context, orientation) {
-  //         if (orientation == Orientation.portrait) {
-  //           return const _RotateDevicePrompt();
-  //         }
-  //         return SafeArea(child: _buildLayout(context));
-  //       },
-  //     ),
-  //   );
-  // }
-
-  // In ControllerScreen's build method:
 
   @override
   Widget build(BuildContext context) {
@@ -129,28 +238,42 @@ class _ControllerScreenState extends State<ControllerScreen> {
         return Stack(
           children: [
             // --- 1. GREEN STATUS BANNER ---
-            // Positioned(
-            //   top: 0,
-            //   left: 0,
-            //   right: 0,
-            //   child: Center(
-            //     child: Container(
-            //       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            //       color: const Color(0xFF007A00),
-            //       child: const Row(
-            //         mainAxisSize: MainAxisSize.min,
-            //         children: [
-            //           Icon(Icons.check, color: Colors.white, size: 18),
-            //           SizedBox(width: 6),
-            //           Text(
-            //             "Mangoes developer",
-            //             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-            //           ),
-            //         ],
-            //       ),
-            //     ),
-            //   ),
-            // ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  color: _connected ? const Color(0xFF007A00) : const Color(0xFFB00020),
+                  // color: const Color(0xFF007A00),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _connected ? Icons.check : Icons.close,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      // Icon(Icons.check, color: Colors.white, size: 18),
+                      const SizedBox(width: 6),
+                      // Text(
+                      //   "Mangoes developer",
+                      //   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                      // ),
+                      Text(
+                        _connected ? "Connected" : "Disconnected",
+                        style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
             // --- 2. LEFT SHOULDER (L) ---
             Positioned(
@@ -364,3 +487,4 @@ class _RotateDevicePrompt extends StatelessWidget {
     );
   }
 }
+
