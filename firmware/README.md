@@ -8,7 +8,7 @@ USB and it shows up exactly like a physical controller, on Windows, Linux,
 and macOS alike.
 
 This directory is the **firmware** half of the
-[gamepad-esp32-controller](../) project. For the phone app, see
+[esp32-gamepad-controller](../) project. For the phone app, see
 [`../app`](../app). For the full wire protocol spec, see
 [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md).
 
