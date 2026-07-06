@@ -96,5 +96,5 @@ in [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md).
 MIT (or match the root repo license)
 
 
-![Controller UI](docs/images/connected.jpeg)
-![Controller UI](docs/images/not-connected.jpeg)
+![Controller UI](../docs/images/connected.jpeg)
+![Controller UI](../docs/images/not-connected.jpeg)
